@@ -1,187 +1,33 @@
-"""
-    Forcing(func; parameters=nothing, field_dependencies=(), discrete_form=false)
 
-Return a `Forcing` `func`tion, which can be added to the tendency of a model field.
-
-If `discrete_form=false` (the default), and neither `parameters` nor `field_dependencies`
-are provided, then `func` must be callable with the signature
-
-```
-func(x, y, z, t)
-```
-
-where `x, y, z` are the east-west, north-south, and vertical spatial coordinates, and `t` is time.
-Note that this form is also default in the constructor for `NonhydrostaticModel`, so that `Forcing` is
-not needed.
-
-If `discrete_form=false` (the default), and `field_dependencies` are provided,
-the signature of `func` must include them. For example, if `field_dependencies=(:u, :S)`
-(and `parameters` are _not_ provided), then `func` must be callable with the signature
-
-```
-func(x, y, z, t, u, S)
-```
-
-where `u` is assumed to be the `u`-velocity component, and `S` is a tracer. Note that any field
-which does not have the name `u`, `v`, or `w` is assumed to be a tracer and must be present
-in `model.tracers`.
-
-If `discrete_form=false` (the default) and `parameters` are provided, then the _last_ argument
-to `func` must be `parameters`. For example, if `func` has no `field_dependencies` but does
-depend on `parameters`, then it must be callable with the signature
-
-```
-func(x, y, z, t, parameters)
-```
-
-The object `parameters` is arbitrary in principle, however GPU compilation can place
-constraints on `typeof(parameters)`.
-
-With `field_dependencies=(:u, :v, :w, :c)` and `parameters`, then `func` must be
-callable with the signature
-
-```
-func(x, y, z, t, u, v, w, c, parameters)
-```
-
-If `discrete_form=true` then `func` must be callable with the "discrete form"
-
-```
-func(i, j, k, grid, clock, model_fields)
-```
-
-where `i, j, k` is the grid point at which the forcing is applied, `grid` is `model.grid`,
-`clock.time` is the current simulation time and `clock.iteration` is the current model iteration,
-and `model_fields` is a `NamedTuple` with `u, v, w`, the fields in `model.tracers`,
-and the fields in `model.diffusivity_fields`, each of which is an `OffsetArray`s (or `NamedTuple`s
-of `OffsetArray`s depending on the turbulence closure) of field data.
-
-When `discrete_form=true` and `parameters` _is_ specified, `func` must be callable with the signature
-
-```
-func(i, j, k, grid, clock, model_fields, parameters)
-```
-
-Examples
-========
-
-```jldoctest forcing
-using Oceananigans
-
-# Parameterized forcing
-parameterized_func(x, y, z, t, p) = p.μ * exp(z / p.λ) * cos(p.ω * t)
-
-v_forcing = Forcing(parameterized_func, parameters = (μ=42, λ=0.1, ω=π))
-
-# output
-ContinuousForcing{@NamedTuple{μ::Int64, λ::Float64, ω::Irrational{:π}}}
-├── func: parameterized_func (generic function with 1 method)
-├── parameters: (μ = 42, λ = 0.1, ω = π)
-└── field dependencies: ()
-```
-
-Note that because forcing locations are regularized within the
-`NonhydrostaticModel` constructor:
-
-```jldoctest forcing
-grid = RectilinearGrid(size=(1, 1, 1), extent=(1, 1, 1))
-model = NonhydrostaticModel(grid=grid, forcing=(v=v_forcing,))
-
-model.forcing.v
-
-# output
-ContinuousForcing{@NamedTuple{μ::Int64, λ::Float64, ω::Irrational{:π}}} at (Center, Face, Center)
-├── func: parameterized_func (generic function with 1 method)
-├── parameters: (μ = 42, λ = 0.1, ω = π)
-└── field dependencies: ()
-```
-
-After passing through the constructor for `NonhydrostaticModel`, the `v`-forcing location
-information is available and set to `Center, Face, Center`.
-
-```jldoctest forcing
-# Field-dependent forcing
-growth_in_sunlight(x, y, z, t, P) = exp(z) * P
-
-plankton_forcing = Forcing(growth_in_sunlight, field_dependencies=:P)
-
-# output
-ContinuousForcing{Nothing}
-├── func: growth_in_sunlight (generic function with 1 method)
-├── parameters: nothing
-└── field dependencies: (:P,)
-```
-
-```jldoctest forcing
-# Parameterized, field-dependent forcing
-tracer_relaxation(x, y, z, t, c, p) = p.μ * exp((z + p.H) / p.λ) * (p.dCdz * z - c) 
-
-c_forcing = Forcing(tracer_relaxation,
-                    field_dependencies = :c,
-                            parameters = (μ=1/60, λ=10, H=1000, dCdz=1))
-
-# output
-ContinuousForcing{@NamedTuple{μ::Float64, λ::Int64, H::Int64, dCdz::Int64}}
-├── func: tracer_relaxation (generic function with 1 method)
-├── parameters: (μ = 0.016666666666666666, λ = 10, H = 1000, dCdz = 1)
-└── field dependencies: (:c,)
-```
-
-```jldoctest forcing
-# Unparameterized discrete-form forcing function
-filtered_relaxation(i, j, k, grid, clock, model_fields) =
-    @inbounds - (model_fields.c[i-1, j, k] + model_fields.c[i, j, k] + model_fields.c[i+1, j, k]) / 3
-
-filtered_forcing = Forcing(filtered_relaxation, discrete_form=true)
-
-# output
-DiscreteForcing{Nothing}
-├── func: filtered_relaxation (generic function with 1 method)
-└── parameters: nothing
-```
-
-```jldoctest forcing
-# Discrete-form forcing function with parameters
-masked_damping(i, j, k, grid, clock, model_fields, parameters) = 
-    @inbounds - parameters.μ * exp(grid.zᵃᵃᶜ[k] / parameters.λ) * model_fields.u[i, j, k]
-
-masked_damping_forcing = Forcing(masked_damping, parameters=(μ=42, λ=π), discrete_form=true)
-
-# output
-DiscreteForcing{@NamedTuple{μ::Int64, λ::Irrational{:π}}}
-├── func: masked_damping (generic function with 1 method)
-└── parameters: (μ = 42, λ = π)
-```
-"""
-function Forcing(func; parameters=nothing, field_dependencies=(), discrete_form=false)
-    if discrete_form
-        return DiscreteForcing(func; parameters=parameters)
-    else
-        return ContinuousForcing(func; parameters=parameters, field_dependencies=field_dependencies)
+#= none:1 =#
+#= none:1 =# Core.@doc "    Forcing(func; parameters=nothing, field_dependencies=(), discrete_form=false)\n\nReturn a `Forcing` `func`tion, which can be added to the tendency of a model field.\n\nIf `discrete_form=false` (the default), and neither `parameters` nor `field_dependencies`\nare provided, then `func` must be callable with the signature\n\n```\nfunc(x, y, z, t)\n```\n\nwhere `x, y, z` are the east-west, north-south, and vertical spatial coordinates, and `t` is time.\nNote that this form is also default in the constructor for `NonhydrostaticModel`, so that `Forcing` is\nnot needed.\n\nIf `discrete_form=false` (the default), and `field_dependencies` are provided,\nthe signature of `func` must include them. For example, if `field_dependencies=(:u, :S)`\n(and `parameters` are _not_ provided), then `func` must be callable with the signature\n\n```\nfunc(x, y, z, t, u, S)\n```\n\nwhere `u` is assumed to be the `u`-velocity component, and `S` is a tracer. Note that any field\nwhich does not have the name `u`, `v`, or `w` is assumed to be a tracer and must be present\nin `model.tracers`.\n\nIf `discrete_form=false` (the default) and `parameters` are provided, then the _last_ argument\nto `func` must be `parameters`. For example, if `func` has no `field_dependencies` but does\ndepend on `parameters`, then it must be callable with the signature\n\n```\nfunc(x, y, z, t, parameters)\n```\n\nThe object `parameters` is arbitrary in principle, however GPU compilation can place\nconstraints on `typeof(parameters)`.\n\nWith `field_dependencies=(:u, :v, :w, :c)` and `parameters`, then `func` must be\ncallable with the signature\n\n```\nfunc(x, y, z, t, u, v, w, c, parameters)\n```\n\nIf `discrete_form=true` then `func` must be callable with the \"discrete form\"\n\n```\nfunc(i, j, k, grid, clock, model_fields)\n```\n\nwhere `i, j, k` is the grid point at which the forcing is applied, `grid` is `model.grid`,\n`clock.time` is the current simulation time and `clock.iteration` is the current model iteration,\nand `model_fields` is a `NamedTuple` with `u, v, w`, the fields in `model.tracers`,\nand the fields in `model.diffusivity_fields`, each of which is an `OffsetArray`s (or `NamedTuple`s\nof `OffsetArray`s depending on the turbulence closure) of field data.\n\nWhen `discrete_form=true` and `parameters` _is_ specified, `func` must be callable with the signature\n\n```\nfunc(i, j, k, grid, clock, model_fields, parameters)\n```\n\nExamples\n========\n\n```jldoctest forcing\nusing Oceananigans\n\n# Parameterized forcing\nparameterized_func(x, y, z, t, p) = p.μ * exp(z / p.λ) * cos(p.ω * t)\n\nv_forcing = Forcing(parameterized_func, parameters = (μ=42, λ=0.1, ω=π))\n\n# output\nContinuousForcing{@NamedTuple{μ::Int64, λ::Float64, ω::Irrational{:π}}}\n├── func: parameterized_func (generic function with 1 method)\n├── parameters: (μ = 42, λ = 0.1, ω = π)\n└── field dependencies: ()\n```\n\nNote that because forcing locations are regularized within the\n`NonhydrostaticModel` constructor:\n\n```jldoctest forcing\ngrid = RectilinearGrid(size=(1, 1, 1), extent=(1, 1, 1))\nmodel = NonhydrostaticModel(grid=grid, forcing=(v=v_forcing,))\n\nmodel.forcing.v\n\n# output\nContinuousForcing{@NamedTuple{μ::Int64, λ::Float64, ω::Irrational{:π}}} at (Center, Face, Center)\n├── func: parameterized_func (generic function with 1 method)\n├── parameters: (μ = 42, λ = 0.1, ω = π)\n└── field dependencies: ()\n```\n\nAfter passing through the constructor for `NonhydrostaticModel`, the `v`-forcing location\ninformation is available and set to `Center, Face, Center`.\n\n```jldoctest forcing\n# Field-dependent forcing\ngrowth_in_sunlight(x, y, z, t, P) = exp(z) * P\n\nplankton_forcing = Forcing(growth_in_sunlight, field_dependencies=:P)\n\n# output\nContinuousForcing{Nothing}\n├── func: growth_in_sunlight (generic function with 1 method)\n├── parameters: nothing\n└── field dependencies: (:P,)\n```\n\n```jldoctest forcing\n# Parameterized, field-dependent forcing\ntracer_relaxation(x, y, z, t, c, p) = p.μ * exp((z + p.H) / p.λ) * (p.dCdz * z - c) \n\nc_forcing = Forcing(tracer_relaxation,\n                    field_dependencies = :c,\n                            parameters = (μ=1/60, λ=10, H=1000, dCdz=1))\n\n# output\nContinuousForcing{@NamedTuple{μ::Float64, λ::Int64, H::Int64, dCdz::Int64}}\n├── func: tracer_relaxation (generic function with 1 method)\n├── parameters: (μ = 0.016666666666666666, λ = 10, H = 1000, dCdz = 1)\n└── field dependencies: (:c,)\n```\n\n```jldoctest forcing\n# Unparameterized discrete-form forcing function\nfiltered_relaxation(i, j, k, grid, clock, model_fields) =\n    @inbounds - (model_fields.c[i-1, j, k] + model_fields.c[i, j, k] + model_fields.c[i+1, j, k]) / 3\n\nfiltered_forcing = Forcing(filtered_relaxation, discrete_form=true)\n\n# output\nDiscreteForcing{Nothing}\n├── func: filtered_relaxation (generic function with 1 method)\n└── parameters: nothing\n```\n\n```jldoctest forcing\n# Discrete-form forcing function with parameters\nmasked_damping(i, j, k, grid, clock, model_fields, parameters) = \n    @inbounds - parameters.μ * exp(grid.zᵃᵃᶜ[k] / parameters.λ) * model_fields.u[i, j, k]\n\nmasked_damping_forcing = Forcing(masked_damping, parameters=(μ=42, λ=π), discrete_form=true)\n\n# output\nDiscreteForcing{@NamedTuple{μ::Int64, λ::Irrational{:π}}}\n├── func: masked_damping (generic function with 1 method)\n└── parameters: (μ = 42, λ = π)\n```\n" function Forcing(func; parameters = nothing, field_dependencies = (), discrete_form = false)
+        #= none:156 =#
+        #= none:157 =#
+        if discrete_form
+            #= none:158 =#
+            return DiscreteForcing(func; parameters = parameters)
+        else
+            #= none:160 =#
+            return ContinuousForcing(func; parameters = parameters, field_dependencies = field_dependencies)
+        end
     end
-end
-
-# Support the case that forcing data is loaded in a 3D array:
-@inline array_forcing_func(i, j, k, grid, clock, fields, a) = @inbounds a[i, j, k]
-
-# Support the case that forcing data is loaded in a 4D `FieldTimeSeries`:
-@inline field_time_series_forcing_func(i, j, k, grid, clock, fields, a::FlavorOfFTS) = @inbounds a[i, j, k, Time(clock.time)]
-
-"""
-    Forcing(array::AbstractArray)
-
-Return a `Forcing` by `array`, which can be added to the tendency of a model field.
-
-Forcing is computed by calling `array[i, j, k]`, so `array` must be 3D with `size(grid)`.
-"""
-Forcing(array::AbstractArray) = Forcing(array_forcing_func; discrete_form=true, parameters=array)
-
-"""
-    Forcing(array::FlavorOfFTS)
-
-Return a `Forcing` by a `FieldTimeSeries`, which can be added to the tendency of a model field.
-
-Forcing is computed by calling `fts[i, j, k, Time(clock.time)]`, so the `FieldTimeSeries` must have the spatial dimensions of the `grid`.
-"""
-Forcing(fts::FlavorOfFTS) = Forcing(field_time_series_forcing_func; discrete_form=true, parameters=fts)
-
+#= none:165 =#
+#= none:165 =# @inline array_forcing_func(i, j, k, grid, clock, fields, a) = begin
+            #= none:165 =#
+            #= none:165 =# @inbounds a[i, j, k]
+        end
+#= none:168 =#
+#= none:168 =# @inline field_time_series_forcing_func(i, j, k, grid, clock, fields, a::FlavorOfFTS) = begin
+            #= none:168 =#
+            #= none:168 =# @inbounds a[i, j, k, Time(clock.time)]
+        end
+#= none:170 =#
+#= none:170 =# Core.@doc "    Forcing(array::AbstractArray)\n\nReturn a `Forcing` by `array`, which can be added to the tendency of a model field.\n\nForcing is computed by calling `array[i, j, k]`, so `array` must be 3D with `size(grid)`.\n" Forcing(array::AbstractArray) = begin
+            #= none:177 =#
+            Forcing(array_forcing_func; discrete_form = true, parameters = array)
+        end
+#= none:179 =#
+#= none:179 =# Core.@doc "    Forcing(array::FlavorOfFTS)\n\nReturn a `Forcing` by a `FieldTimeSeries`, which can be added to the tendency of a model field.\n\nForcing is computed by calling `fts[i, j, k, Time(clock.time)]`, so the `FieldTimeSeries` must have the spatial dimensions of the `grid`.\n" Forcing(fts::FlavorOfFTS) = begin
+            #= none:186 =#
+            Forcing(field_time_series_forcing_func; discrete_form = true, parameters = fts)
+        end

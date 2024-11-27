@@ -1,167 +1,153 @@
-"""
-    struct CATKEEquation{FT}
 
-Parameters for the evolution of oceanic turbulent kinetic energy at the O(1 m) scales associated with
-isotropic turbulence and diapycnal mixing.
-"""
-Base.@kwdef struct CATKEEquation{FT}
-    CʰⁱD  :: FT = 0.579 # Dissipation length scale shear coefficient for high Ri
-    CˡᵒD  :: FT = 1.604 # Dissipation length scale shear coefficient for low Ri
-    CᵘⁿD  :: FT = 0.923 # Dissipation length scale shear coefficient for high Ri
-    CᶜD   :: FT = 3.254 # Dissipation length scale convecting layer coefficient
-    CᵉD   :: FT = 0.0   # Dissipation length scale penetration layer coefficient
-    Cᵂu★  :: FT = 3.179 # Surface shear-driven TKE flux coefficient
-    CᵂwΔ  :: FT = 0.383 # Surface convective TKE flux coefficient
-    Cᵂϵ   :: FT = 1.0   # Dissipative near-bottom TKE flux coefficient
-end
-
-#####
-##### Terms in the turbulent kinetic energy equation, all at cell centers
-#####
-
-#=
-@inline buoyancy_flux(i, j, k, grid, closure::FlavorOfCATKE, velocities, tracers, buoyancy, diffusivities) =
-    explicit_buoyancy_flux(i, j, k, grid, closure, velocities, tracers, buoyancy, diffusivities)
-
-@inline function buoyancy_flux(i, j, k, grid, closure::FlavorOfCATKE{<:VITD}, velocities, tracers, buoyancy, diffusivities)
-    wb = explicit_buoyancy_flux(i, j, k, grid, closure, velocities, tracers, buoyancy, diffusivities)
-
-    # "Patankar trick" for buoyancy production (cf Patankar 1980 or Burchard et al. 2003)
-    # If buoyancy flux is a _sink_ of TKE, we treat it implicitly, and return zero here for
-    # the explicit buoyancy flux.
-    return max(zero(grid), wb)
-end
-=#
-
-@inline dissipation(i, j, k, grid, closure::FlavorOfCATKE{<:VITD}, args...) = zero(grid)
-
-@inline function dissipation_length_scaleᶜᶜᶜ(i, j, k, grid, closure::FlavorOfCATKE, velocities, tracers,
-                                             buoyancy, surface_buoyancy_flux)
-
-    # Convective dissipation length
-    Cᶜ = closure.turbulent_kinetic_energy_equation.CᶜD
-    Cᵉ = closure.turbulent_kinetic_energy_equation.CᵉD
-    Cˢᵖ = closure.mixing_length.Cˢᵖ
-    Jᵇ = surface_buoyancy_flux
-    ℓʰ = convective_length_scaleᶜᶜᶜ(i, j, k, grid, closure, Cᶜ, Cᵉ, Cˢᵖ, velocities, tracers, buoyancy, Jᵇ)
-
-    # "Stable" dissipation length
-    Cˡᵒ = closure.turbulent_kinetic_energy_equation.CˡᵒD
-    Cʰⁱ = closure.turbulent_kinetic_energy_equation.CʰⁱD
-    Cᵘⁿ = closure.turbulent_kinetic_energy_equation.CᵘⁿD
-    σᴰ = stability_functionᶜᶜᶜ(i, j, k, grid, closure, Cᵘⁿ, Cˡᵒ, Cʰⁱ, velocities, tracers, buoyancy)
-    ℓ★ = stable_length_scaleᶜᶜᶜ(i, j, k, grid, closure, tracers.e, velocities, tracers, buoyancy)
-    ℓ★ = ℓ★ / σᴰ
-
-    # Dissipation length
-    ℓʰ = ifelse(isnan(ℓʰ), zero(grid), ℓʰ)
-    ℓ★ = ifelse(isnan(ℓ★), zero(grid), ℓ★)
-    ℓᴰ = max(ℓ★, ℓʰ)
-
-    H = total_depthᶜᶜᵃ(i, j, grid)
-    return min(H, ℓᴰ)
-end
-
-@inline function dissipation_rate(i, j, k, grid, closure::FlavorOfCATKE,
-                                  velocities, tracers, buoyancy, diffusivities)
-
-    ℓᴰ = dissipation_length_scaleᶜᶜᶜ(i, j, k, grid, closure, velocities, tracers, buoyancy, diffusivities.Jᵇ)
-    e = tracers.e
-    FT = eltype(grid)
-    eᵢ = @inbounds e[i, j, k]
-    
-    # Note:
-    #   Because   ∂t e + ⋯ = ⋯ + L e = ⋯ - ϵ,
-    #
-    #   then      L e = - ϵ
-    #                 = - Cᴰ e³² / ℓ
-    #
-    #   and thus    L = - Cᴰ √e / ℓ .
-
-    ω_numerical = 1 / closure.negative_tke_damping_time_scale
-    ω_physical = sqrt(abs(eᵢ)) / ℓᴰ
-
-    return ifelse(eᵢ < 0, ω_numerical, ω_physical)
-end
-
-# Fallbacks for explicit time discretization
-@inline function dissipation(i, j, k, grid, closure::FlavorOfCATKE, velocities, tracers, args...)
-    eᵢ = @inbounds tracers.e[i, j, k]
-    ω = dissipation_rate(i, j, k, grid, closure, velocities, tracers, args...)
-    return ω * eᵢ
-end
-
-#####
-##### TKE top boundary condition
-#####
-
-@inline function top_tke_flux(i, j, grid, clock, fields, parameters, closure::FlavorOfCATKE, buoyancy)
-    closure = getclosure(i, j, closure)
-
-    top_tracer_bcs = parameters.top_tracer_boundary_conditions
-    top_velocity_bcs = parameters.top_velocity_boundary_conditions
-    tke_parameters = closure.turbulent_kinetic_energy_equation
-
-    return _top_tke_flux(i, j, grid, clock, fields, tke_parameters, closure,
-                         buoyancy, top_tracer_bcs, top_velocity_bcs)
-end
-
-@inline function _top_tke_flux(i, j, grid, clock, fields,
-                               tke::CATKEEquation, closure::CATKEVD,
-                               buoyancy, top_tracer_bcs, top_velocity_bcs)
-
-    wΔ³ = top_convective_turbulent_velocity_cubed(i, j, grid, clock, fields, buoyancy, top_tracer_bcs)
-    u★ = friction_velocity(i, j, grid, clock, fields, top_velocity_bcs)
-
-    Cᵂu★ = tke.Cᵂu★
-    CᵂwΔ = tke.CᵂwΔ
-
-    return - Cᵂu★ * u★^3 - CᵂwΔ * wΔ³
-end
-
-#####
-##### Utilities for model constructors
-#####
-
-""" Add TKE boundary conditions specific to `CATKEVerticalDiffusivity`. """
-function add_closure_specific_boundary_conditions(closure::FlavorOfCATKE,
-                                                  user_bcs,
-                                                  grid,
-                                                  tracer_names,
-                                                  buoyancy)
-
-    top_tracer_bcs = top_tracer_boundary_conditions(grid, tracer_names, user_bcs)
-    top_velocity_bcs = top_velocity_boundary_conditions(grid, user_bcs)
-    parameters = TKETopBoundaryConditionParameters(top_tracer_bcs, top_velocity_bcs)
-    top_tke_bc = FluxBoundaryCondition(top_tke_flux, discrete_form=true, parameters=parameters)
-
-    if :e ∈ keys(user_bcs)
-        e_bcs = user_bcs[:e]
-        
-        tke_bcs = FieldBoundaryConditions(grid, (Center, Center, Center),
-                                          top = top_tke_bc,
-                                          bottom = e_bcs.bottom,
-                                          north = e_bcs.north,
-                                          south = e_bcs.south,
-                                          east = e_bcs.east,
-                                          west = e_bcs.west)
-    else
-        tke_bcs = FieldBoundaryConditions(grid, (Center, Center, Center), top=top_tke_bc)
+#= none:1 =#
+#= none:1 =# Core.@doc "    struct CATKEEquation{FT}\n\nParameters for the evolution of oceanic turbulent kinetic energy at the O(1 m) scales associated with\nisotropic turbulence and diapycnal mixing.\n" #= none:7 =# Base.@kwdef(struct CATKEEquation{FT}
+            #= none:8 =#
+            CʰⁱD::FT = 0.579
+            #= none:9 =#
+            CˡᵒD::FT = 1.604
+            #= none:10 =#
+            CᵘⁿD::FT = 0.923
+            #= none:11 =#
+            CᶜD::FT = 3.254
+            #= none:12 =#
+            CᵉD::FT = 0.0
+            #= none:13 =#
+            Cᵂu★::FT = 3.179
+            #= none:14 =#
+            CᵂwΔ::FT = 0.383
+            #= none:15 =#
+            Cᵂϵ::FT = 1.0
+        end)
+#= none:36 =#
+#= none:36 =# @inline dissipation(i, j, k, grid, closure::FlavorOfCATKE{<:VITD}, args...) = begin
+            #= none:36 =#
+            zero(grid)
+        end
+#= none:38 =#
+#= none:38 =# @inline function dissipation_length_scaleᶜᶜᶜ(i, j, k, grid, closure::FlavorOfCATKE, velocities, tracers, buoyancy, surface_buoyancy_flux)
+        #= none:38 =#
+        #= none:42 =#
+        Cᶜ = closure.turbulent_kinetic_energy_equation.CᶜD
+        #= none:43 =#
+        Cᵉ = closure.turbulent_kinetic_energy_equation.CᵉD
+        #= none:44 =#
+        Cˢᵖ = closure.mixing_length.Cˢᵖ
+        #= none:45 =#
+        Jᵇ = surface_buoyancy_flux
+        #= none:46 =#
+        ℓʰ = convective_length_scaleᶜᶜᶜ(i, j, k, grid, closure, Cᶜ, Cᵉ, Cˢᵖ, velocities, tracers, buoyancy, Jᵇ)
+        #= none:49 =#
+        Cˡᵒ = closure.turbulent_kinetic_energy_equation.CˡᵒD
+        #= none:50 =#
+        Cʰⁱ = closure.turbulent_kinetic_energy_equation.CʰⁱD
+        #= none:51 =#
+        Cᵘⁿ = closure.turbulent_kinetic_energy_equation.CᵘⁿD
+        #= none:52 =#
+        σᴰ = stability_functionᶜᶜᶜ(i, j, k, grid, closure, Cᵘⁿ, Cˡᵒ, Cʰⁱ, velocities, tracers, buoyancy)
+        #= none:53 =#
+        ℓ★ = stable_length_scaleᶜᶜᶜ(i, j, k, grid, closure, tracers.e, velocities, tracers, buoyancy)
+        #= none:54 =#
+        ℓ★ = ℓ★ / σᴰ
+        #= none:57 =#
+        ℓʰ = ifelse(isnan(ℓʰ), zero(grid), ℓʰ)
+        #= none:58 =#
+        ℓ★ = ifelse(isnan(ℓ★), zero(grid), ℓ★)
+        #= none:59 =#
+        ℓᴰ = max(ℓ★, ℓʰ)
+        #= none:61 =#
+        H = total_depthᶜᶜᵃ(i, j, grid)
+        #= none:62 =#
+        return min(H, ℓᴰ)
     end
-
-    new_boundary_conditions = merge(user_bcs, (; e = tke_bcs))
-
-    return new_boundary_conditions
-end
-
-Base.summary(::CATKEEquation) = "TKEBasedVerticalDiffusivities.CATKEEquation"
-Base.show(io::IO, tke::CATKEEquation) =
-    print(io, "TKEBasedVerticalDiffusivities.CATKEEquation parameters:", '\n',
-              "├── CʰⁱD: ", tke.CʰⁱD, '\n',
-              "├── CˡᵒD: ", tke.CˡᵒD, '\n',
-              "├── CᵘⁿD: ", tke.CᵘⁿD, '\n',
-              "├── CᶜD:  ", tke.CᶜD,  '\n',
-              "├── CᵉD:  ", tke.CᵉD,  '\n',
-              "├── Cᵂu★: ", tke.Cᵂu★, '\n',
-              "└── CᵂwΔ: ", tke.CᵂwΔ)
-
+#= none:65 =#
+#= none:65 =# @inline function dissipation_rate(i, j, k, grid, closure::FlavorOfCATKE, velocities, tracers, buoyancy, diffusivities)
+        #= none:65 =#
+        #= none:68 =#
+        ℓᴰ = dissipation_length_scaleᶜᶜᶜ(i, j, k, grid, closure, velocities, tracers, buoyancy, diffusivities.Jᵇ)
+        #= none:69 =#
+        e = tracers.e
+        #= none:70 =#
+        FT = eltype(grid)
+        #= none:71 =#
+        eᵢ = #= none:71 =# @inbounds(e[i, j, k])
+        #= none:81 =#
+        ω_numerical = 1 / closure.negative_tke_damping_time_scale
+        #= none:82 =#
+        ω_physical = sqrt(abs(eᵢ)) / ℓᴰ
+        #= none:84 =#
+        return ifelse(eᵢ < 0, ω_numerical, ω_physical)
+    end
+#= none:88 =#
+#= none:88 =# @inline function dissipation(i, j, k, grid, closure::FlavorOfCATKE, velocities, tracers, args...)
+        #= none:88 =#
+        #= none:89 =#
+        eᵢ = #= none:89 =# @inbounds(tracers.e[i, j, k])
+        #= none:90 =#
+        ω = dissipation_rate(i, j, k, grid, closure, velocities, tracers, args...)
+        #= none:91 =#
+        return ω * eᵢ
+    end
+#= none:98 =#
+#= none:98 =# @inline function top_tke_flux(i, j, grid, clock, fields, parameters, closure::FlavorOfCATKE, buoyancy)
+        #= none:98 =#
+        #= none:99 =#
+        closure = getclosure(i, j, closure)
+        #= none:101 =#
+        top_tracer_bcs = parameters.top_tracer_boundary_conditions
+        #= none:102 =#
+        top_velocity_bcs = parameters.top_velocity_boundary_conditions
+        #= none:103 =#
+        tke_parameters = closure.turbulent_kinetic_energy_equation
+        #= none:105 =#
+        return _top_tke_flux(i, j, grid, clock, fields, tke_parameters, closure, buoyancy, top_tracer_bcs, top_velocity_bcs)
+    end
+#= none:109 =#
+#= none:109 =# @inline function _top_tke_flux(i, j, grid, clock, fields, tke::CATKEEquation, closure::CATKEVD, buoyancy, top_tracer_bcs, top_velocity_bcs)
+        #= none:109 =#
+        #= none:113 =#
+        wΔ³ = top_convective_turbulent_velocity_cubed(i, j, grid, clock, fields, buoyancy, top_tracer_bcs)
+        #= none:114 =#
+        u★ = friction_velocity(i, j, grid, clock, fields, top_velocity_bcs)
+        #= none:116 =#
+        Cᵂu★ = tke.Cᵂu★
+        #= none:117 =#
+        CᵂwΔ = tke.CᵂwΔ
+        #= none:119 =#
+        return -Cᵂu★ * u★ ^ 3 - CᵂwΔ * wΔ³
+    end
+#= none:126 =#
+#= none:126 =# Core.@doc " Add TKE boundary conditions specific to `CATKEVerticalDiffusivity`. " function add_closure_specific_boundary_conditions(closure::FlavorOfCATKE, user_bcs, grid, tracer_names, buoyancy)
+        #= none:127 =#
+        #= none:133 =#
+        top_tracer_bcs = top_tracer_boundary_conditions(grid, tracer_names, user_bcs)
+        #= none:134 =#
+        top_velocity_bcs = top_velocity_boundary_conditions(grid, user_bcs)
+        #= none:135 =#
+        parameters = TKETopBoundaryConditionParameters(top_tracer_bcs, top_velocity_bcs)
+        #= none:136 =#
+        top_tke_bc = FluxBoundaryCondition(top_tke_flux, discrete_form = true, parameters = parameters)
+        #= none:138 =#
+        if :e ∈ keys(user_bcs)
+            #= none:139 =#
+            e_bcs = user_bcs[:e]
+            #= none:141 =#
+            tke_bcs = FieldBoundaryConditions(grid, (Center, Center, Center), top = top_tke_bc, bottom = e_bcs.bottom, north = e_bcs.north, south = e_bcs.south, east = e_bcs.east, west = e_bcs.west)
+        else
+            #= none:149 =#
+            tke_bcs = FieldBoundaryConditions(grid, (Center, Center, Center), top = top_tke_bc)
+        end
+        #= none:152 =#
+        new_boundary_conditions = merge(user_bcs, (; e = tke_bcs))
+        #= none:154 =#
+        return new_boundary_conditions
+    end
+#= none:157 =#
+Base.summary(::CATKEEquation) = begin
+        #= none:157 =#
+        "TKEBasedVerticalDiffusivities.CATKEEquation"
+    end
+#= none:158 =#
+Base.show(io::IO, tke::CATKEEquation) = begin
+        #= none:158 =#
+        print(io, "TKEBasedVerticalDiffusivities.CATKEEquation parameters:", '\n', "├── CʰⁱD: ", tke.CʰⁱD, '\n', "├── CˡᵒD: ", tke.CˡᵒD, '\n', "├── CᵘⁿD: ", tke.CᵘⁿD, '\n', "├── CᶜD:  ", tke.CᶜD, '\n', "├── CᵉD:  ", tke.CᵉD, '\n', "├── Cᵂu★: ", tke.Cᵂu★, '\n', "└── CᵂwΔ: ", tke.CᵂwΔ)
+    end

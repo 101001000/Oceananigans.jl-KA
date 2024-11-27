@@ -1,71 +1,114 @@
+
+#= none:1 =#
 using Oceananigans: prognostic_fields
+#= none:2 =#
 using Oceananigans.Grids
+#= none:3 =#
 using Oceananigans.Utils: KernelParameters
+#= none:4 =#
 using Oceananigans.Grids: halo_size, topology, architecture
+#= none:5 =#
 using Oceananigans.DistributedComputations
+#= none:6 =#
 using Oceananigans.DistributedComputations: DistributedGrid
+#= none:7 =#
 using Oceananigans.DistributedComputations: synchronize_communication!, SynchronizedDistributed
-
+#= none:9 =#
 function complete_communication_and_compute_buffer!(model, ::DistributedGrid, arch)
-
-    # Iterate over the fields to clear _ALL_ possible architectures
-    for field in prognostic_fields(model)
+    #= none:9 =#
+    #= none:12 =#
+    for field = prognostic_fields(model)
+        #= none:13 =#
         synchronize_communication!(field)
+        #= none:14 =#
     end
-
-    # Recompute tendencies near the buffer halos
+    #= none:17 =#
     compute_buffer_tendencies!(model)
-
+    #= none:19 =#
     return nothing
 end
-
-# Fallback
-complete_communication_and_compute_buffer!(model, ::DistributedGrid, ::SynchronizedDistributed) = nothing
-complete_communication_and_compute_buffer!(model, grid, arch) = nothing
-
-compute_buffer_tendencies!(model) = nothing
-
-""" Kernel parameters for computing interior tendencies. """
-interior_tendency_kernel_parameters(arch, grid) = :xyz # fallback
-interior_tendency_kernel_parameters(::SynchronizedDistributed, grid) = :xyz
-
+#= none:23 =#
+complete_communication_and_compute_buffer!(model, ::DistributedGrid, ::SynchronizedDistributed) = begin
+        #= none:23 =#
+        nothing
+    end
+#= none:24 =#
+complete_communication_and_compute_buffer!(model, grid, arch) = begin
+        #= none:24 =#
+        nothing
+    end
+#= none:26 =#
+compute_buffer_tendencies!(model) = begin
+        #= none:26 =#
+        nothing
+    end
+#= none:28 =#
+#= none:28 =# Core.@doc " Kernel parameters for computing interior tendencies. " interior_tendency_kernel_parameters(arch, grid) = begin
+            #= none:29 =#
+            :xyz
+        end
+#= none:30 =#
+interior_tendency_kernel_parameters(::SynchronizedDistributed, grid) = begin
+        #= none:30 =#
+        :xyz
+    end
+#= none:32 =#
 function interior_tendency_kernel_parameters(arch::Distributed, grid)
-    Rx, Ry, _ = arch.ranks
-    Hx, Hy, _ = halo_size(grid)
-    Tx, Ty, _ = topology(grid)
-    Nx, Ny, Nz = size(grid)
-
-    # Kernel parameters to compute the tendencies in all the interior if the direction is local (`R == 1`) and only in 
-    # the part of the domain that does not depend on the halo cells if the direction is partitioned. 
+    #= none:32 =#
+    #= none:33 =#
+    (Rx, Ry, _) = arch.ranks
+    #= none:34 =#
+    (Hx, Hy, _) = halo_size(grid)
+    #= none:35 =#
+    (Tx, Ty, _) = topology(grid)
+    #= none:36 =#
+    (Nx, Ny, Nz) = size(grid)
+    #= none:40 =#
     local_x = Rx == 1
+    #= none:41 =#
     local_y = Ry == 1
+    #= none:42 =#
     one_sided_x = Tx == RightConnected || Tx == LeftConnected
-    one_sided_y = Ty == RightConnected || Ty == LeftConnected 
-
-    # Sizes
+    #= none:43 =#
+    one_sided_y = Ty == RightConnected || Ty == LeftConnected
+    #= none:46 =#
     Sx = if local_x
-        Nx
-    elseif one_sided_x
-        Nx - Hx
-    else # two sided
-        Nx - 2Hx
-    end
-
+            #= none:47 =#
+            Nx
+        elseif #= none:48 =# one_sided_x
+            #= none:49 =#
+            Nx - Hx
+        else
+            #= none:51 =#
+            Nx - 2Hx
+        end
+    #= none:54 =#
     Sy = if local_y
-        Ny
-    elseif one_sided_y
-        Ny - Hy
-    else # two sided
-        Ny - 2Hy
-    end
-
-    # Offsets
-    Ox = Rx == 1 || Tx == RightConnected ? 0 : Hx
-    Oy = Ry == 1 || Ty == RightConnected ? 0 : Hy
-
+            #= none:55 =#
+            Ny
+        elseif #= none:56 =# one_sided_y
+            #= none:57 =#
+            Ny - Hy
+        else
+            #= none:59 =#
+            Ny - 2Hy
+        end
+    #= none:63 =#
+    Ox = if Rx == 1 || Tx == RightConnected
+            0
+        else
+            Hx
+        end
+    #= none:64 =#
+    Oy = if Ry == 1 || Ty == RightConnected
+            0
+        else
+            Hy
+        end
+    #= none:66 =#
     sizes = (Sx, Sy, Nz)
+    #= none:67 =#
     offsets = (Ox, Oy, 0)
-     
+    #= none:69 =#
     return KernelParameters(sizes, offsets)
 end
-

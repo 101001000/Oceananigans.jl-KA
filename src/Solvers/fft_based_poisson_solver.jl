@@ -1,138 +1,128 @@
+
+#= none:1 =#
 using Oceananigans.Fields: indices, offset_compute_index
-
+#= none:3 =#
 import Oceananigans.Architectures: architecture
-
+#= none:5 =#
 struct FFTBasedPoissonSolver{G, Λ, S, B, T}
-            grid :: G
-     eigenvalues :: Λ
-         storage :: S
-          buffer :: B
-      transforms :: T
+    #= none:6 =#
+    grid::G
+    #= none:7 =#
+    eigenvalues::Λ
+    #= none:8 =#
+    storage::S
+    #= none:9 =#
+    buffer::B
+    #= none:10 =#
+    transforms::T
 end
-
-architecture(solver::FFTBasedPoissonSolver) = architecture(solver.grid)
-
-transform_str(transform) = string(typeof(transform).name.wrapper, ", ")
-
+#= none:13 =#
+architecture(solver::FFTBasedPoissonSolver) = begin
+        #= none:13 =#
+        architecture(solver.grid)
+    end
+#= none:15 =#
+transform_str(transform) = begin
+        #= none:15 =#
+        string((typeof(transform)).name.wrapper, ", ")
+    end
+#= none:17 =#
 function transform_list_str(transform_list)
-    transform_strs = (transform_str(t) for t in transform_list)
+    #= none:17 =#
+    #= none:18 =#
+    transform_strs = (transform_str(t) for t = transform_list)
+    #= none:19 =#
     list = string(transform_strs...)
-    list = list[1:end-2]
+    #= none:20 =#
+    list = list[1:end - 2]
+    #= none:21 =#
     return list
 end
-
-Base.summary(solver::FFTBasedPoissonSolver) = "FFTBasedPoissonSolver"
-
-Base.show(io::IO, solver::FFTBasedPoissonSolver) =
-    print(io, "FFTBasedPoissonSolver on ", string(typeof(architecture(solver))), ": \n",
-              "├── grid: $(summary(solver.grid))\n",
-              "├── storage: $(typeof(solver.storage))\n",
-              "├── buffer: $(typeof(solver.buffer))\n",
-              "└── transforms:\n",
-              "    ├── forward: ", transform_list_str(solver.transforms.forward), "\n",
-              "    └── backward: ", transform_list_str(solver.transforms.backward))
-
-"""
-    FFTBasedPoissonSolver(grid, planner_flag=FFTW.PATIENT)
-
-Return an `FFTBasedPoissonSolver` that solves the "generalized" Poisson equation,
-
-```math
-(∇² + m) ϕ = b,
-```
-
-where ``m`` is a number, using a eigenfunction expansion of the discrete Poisson operator
-on a staggered grid and for periodic or Neumann boundary conditions.
-
-In-place transforms are applied to ``b``, which means ``b`` must have complex-valued
-elements (typically the same type as `solver.storage`).
-
-See [`solve!`](@ref) for more information about the FFT-based Poisson solver algorithm.
-"""
-function FFTBasedPoissonSolver(grid, planner_flag=FFTW.PATIENT)
-    topo = (TX, TY, TZ) =  topology(grid)
-
-    λx = poisson_eigenvalues(grid.Nx, grid.Lx, 1, TX())
-    λy = poisson_eigenvalues(grid.Ny, grid.Ly, 2, TY())
-    λz = poisson_eigenvalues(grid.Nz, grid.Lz, 3, TZ())
-
-    arch = architecture(grid)
-
-    eigenvalues = (λx = on_architecture(arch, λx),
-                   λy = on_architecture(arch, λy),
-                   λz = on_architecture(arch, λz))
-
-    storage = on_architecture(arch, zeros(complex(eltype(grid)), size(grid)...))
-
-    transforms = plan_transforms(grid, storage, planner_flag)
-
-    # Need buffer for index permutations and transposes.
-    buffer_needed = arch isa GPU && Bounded in topo
-    buffer = buffer_needed ? similar(storage) : nothing
-
-    return FFTBasedPoissonSolver(grid, eigenvalues, storage, buffer, transforms)
-end
-
-"""
-    solve!(ϕ, solver::FFTBasedPoissonSolver, b, m=0)
-
-Solve the "generalized" Poisson equation,
-
-```math
-(∇² + m) ϕ = b,
-```
-
-where ``m`` is a number, using a eigenfunction expansion of the discrete Poisson operator
-on a staggered grid and for periodic or Neumann boundary conditions.
-
-In-place transforms are applied to ``b``, which means ``b`` must have complex-valued
-elements (typically the same type as `solver.storage`).
-
-!!! info "Alternative names for 'generalized' Poisson equation"
-    Equation ``(∇² + m) ϕ = b`` is sometimes referred to as the "screened Poisson" equation
-    when ``m < 0``, or the Helmholtz equation when ``m > 0``.
-"""
-function solve!(ϕ, solver::FFTBasedPoissonSolver, b=solver.storage, m=0)
-    arch = architecture(solver)
-    topo = TX, TY, TZ = topology(solver.grid)
-    Nx, Ny, Nz = size(solver.grid)
-    λx, λy, λz = solver.eigenvalues
-
-    # Temporarily store the solution in ϕc
-    ϕc = solver.storage
-
-    # Transform b *in-place* to eigenfunction space
-    for transform! in solver.transforms.forward
-        transform!(b, solver.buffer)
+#= none:24 =#
+Base.summary(solver::FFTBasedPoissonSolver) = begin
+        #= none:24 =#
+        "FFTBasedPoissonSolver"
     end
-
-    # Solve the discrete screened Poisson equation (∇² + m) ϕ = b.
-    @. ϕc = - b / (λx + λy + λz - m)
-
-    # If m === 0, the "zeroth mode" at `i, j, k = 1, 1, 1` is undetermined;
-    # we set this to zero by default. Another slant on this "problem" is that
-    # λx[1, 1, 1] + λy[1, 1, 1] + λz[1, 1, 1] = 0, which yields ϕ[1, 1, 1] = Inf or NaN.
-    m === 0 && CUDA.@allowscalar ϕc[1, 1, 1] = 0
-
-    # Apply backward transforms in order
-    for transform! in solver.transforms.backward
-        transform!(ϕc, solver.buffer)
+#= none:26 =#
+Base.show(io::IO, solver::FFTBasedPoissonSolver) = begin
+        #= none:26 =#
+        print(io, "FFTBasedPoissonSolver on ", string(typeof(architecture(solver))), ": \n", "├── grid: $(summary(solver.grid))\n", "├── storage: $(typeof(solver.storage))\n", "├── buffer: $(typeof(solver.buffer))\n", "└── transforms:\n", "    ├── forward: ", transform_list_str(solver.transforms.forward), "\n", "    └── backward: ", transform_list_str(solver.transforms.backward))
     end
-
-    launch!(arch, solver.grid, :xyz, copy_real_component!, ϕ, ϕc, indices(ϕ))
-    
-    return ϕ
-end
-
-# We have to pass the offset explicitly to this kernel (we cannot use KA implicit
-# index offsetting) since ϕc and ϕ and indexed with different indices
-@kernel function copy_real_component!(ϕ, ϕc, index_ranges)
-    i, j, k = @index(Global, NTuple)
-
-    i′ = offset_compute_index(index_ranges[1], i)
-    j′ = offset_compute_index(index_ranges[2], j)
-    k′ = offset_compute_index(index_ranges[3], k)
-
-    @inbounds ϕ[i′, j′, k′] = real(ϕc[i, j, k])
-end
-
+#= none:35 =#
+#= none:35 =# Core.@doc "    FFTBasedPoissonSolver(grid, planner_flag=FFTW.PATIENT)\n\nReturn an `FFTBasedPoissonSolver` that solves the \"generalized\" Poisson equation,\n\n```math\n(∇² + m) ϕ = b,\n```\n\nwhere ``m`` is a number, using a eigenfunction expansion of the discrete Poisson operator\non a staggered grid and for periodic or Neumann boundary conditions.\n\nIn-place transforms are applied to ``b``, which means ``b`` must have complex-valued\nelements (typically the same type as `solver.storage`).\n\nSee [`solve!`](@ref) for more information about the FFT-based Poisson solver algorithm.\n" function FFTBasedPoissonSolver(grid, planner_flag = FFTW.PATIENT)
+        #= none:52 =#
+        #= none:53 =#
+        topo = ((TX, TY, TZ) = topology(grid))
+        #= none:55 =#
+        λx = poisson_eigenvalues(grid.Nx, grid.Lx, 1, TX())
+        #= none:56 =#
+        λy = poisson_eigenvalues(grid.Ny, grid.Ly, 2, TY())
+        #= none:57 =#
+        λz = poisson_eigenvalues(grid.Nz, grid.Lz, 3, TZ())
+        #= none:59 =#
+        arch = architecture(grid)
+        #= none:61 =#
+        eigenvalues = (λx = on_architecture(arch, λx), λy = on_architecture(arch, λy), λz = on_architecture(arch, λz))
+        #= none:65 =#
+        storage = on_architecture(arch, zeros(complex(eltype(grid)), size(grid)...))
+        #= none:67 =#
+        transforms = plan_transforms(grid, storage, planner_flag)
+        #= none:70 =#
+        buffer_needed = arch isa GPU && Bounded in topo
+        #= none:71 =#
+        buffer = if buffer_needed
+                similar(storage)
+            else
+                nothing
+            end
+        #= none:73 =#
+        return FFTBasedPoissonSolver(grid, eigenvalues, storage, buffer, transforms)
+    end
+#= none:76 =#
+#= none:76 =# Core.@doc "    solve!(ϕ, solver::FFTBasedPoissonSolver, b, m=0)\n\nSolve the \"generalized\" Poisson equation,\n\n```math\n(∇² + m) ϕ = b,\n```\n\nwhere ``m`` is a number, using a eigenfunction expansion of the discrete Poisson operator\non a staggered grid and for periodic or Neumann boundary conditions.\n\nIn-place transforms are applied to ``b``, which means ``b`` must have complex-valued\nelements (typically the same type as `solver.storage`).\n\n!!! info \"Alternative names for 'generalized' Poisson equation\"\n    Equation ``(∇² + m) ϕ = b`` is sometimes referred to as the \"screened Poisson\" equation\n    when ``m < 0``, or the Helmholtz equation when ``m > 0``.\n" function solve!(ϕ, solver::FFTBasedPoissonSolver, b = solver.storage, m = 0)
+        #= none:95 =#
+        #= none:96 =#
+        arch = architecture(solver)
+        #= none:97 =#
+        topo = ((TX, TY, TZ) = topology(solver.grid))
+        #= none:98 =#
+        (Nx, Ny, Nz) = size(solver.grid)
+        #= none:99 =#
+        (λx, λy, λz) = solver.eigenvalues
+        #= none:102 =#
+        ϕc = solver.storage
+        #= none:105 =#
+        for transform! = solver.transforms.forward
+            #= none:106 =#
+            transform!(b, solver.buffer)
+            #= none:107 =#
+        end
+        #= none:110 =#
+        #= none:110 =# @__dot__ ϕc = -b / ((λx + λy + λz) - m)
+        #= none:115 =#
+        m === 0 && #= none:115 =# CUDA.@allowscalar(ϕc[1, 1, 1] = 0)
+        #= none:118 =#
+        for transform! = solver.transforms.backward
+            #= none:119 =#
+            transform!(ϕc, solver.buffer)
+            #= none:120 =#
+        end
+        #= none:122 =#
+        launch!(arch, solver.grid, :xyz, copy_real_component!, ϕ, ϕc, indices(ϕ))
+        #= none:124 =#
+        return ϕ
+    end
+#= none:129 =#
+#= none:129 =# @kernel function copy_real_component!(ϕ, ϕc, index_ranges)
+        #= none:129 =#
+        #= none:130 =#
+        (i, j, k) = #= none:130 =# @index(Global, NTuple)
+        #= none:132 =#
+        i′ = offset_compute_index(index_ranges[1], i)
+        #= none:133 =#
+        j′ = offset_compute_index(index_ranges[2], j)
+        #= none:134 =#
+        k′ = offset_compute_index(index_ranges[3], k)
+        #= none:136 =#
+        #= none:136 =# @inbounds ϕ[i′, j′, k′] = real(ϕc[i, j, k])
+    end

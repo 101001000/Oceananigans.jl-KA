@@ -1,178 +1,207 @@
+
+#= none:1 =#
 include("dependencies_for_runtests.jl")
-
+#= none:3 =#
 using Statistics: mean
+#= none:4 =#
 using Oceananigans.Operators
-    
-# To be used in the test below as `KernelFunctionOperation`s
-@inline intrinsic_vector_x_component(i, j, k, grid, uₑ, vₑ) = 
-    @inbounds intrinsic_vector(i, j, k, grid, uₑ, vₑ)[1]
-    
-@inline intrinsic_vector_y_component(i, j, k, grid, uₑ, vₑ) =
-    @inbounds intrinsic_vector(i, j, k, grid, uₑ, vₑ)[2]
-
-@inline extrinsic_vector_x_component(i, j, k, grid, uᵢ, vᵢ) =
-    @inbounds extrinsic_vector(i, j, k, grid, uᵢ, vᵢ)[1]
-    
-@inline extrinsic_vector_y_component(i, j, k, grid, uᵢ, vᵢ) =
-    @inbounds extrinsic_vector(i, j, k, grid, uᵢ, vᵢ)[2]
-
-@inline function kinetic_energyᶜᶜᶜ(i, j, k, grid, uᶜᶜᶜ, vᶜᶜᶜ)
-    @inbounds u² = uᶜᶜᶜ[i, j, k]^2
-    @inbounds v² = vᶜᶜᶜ[i, j, k]^2
-    return (u² + v²) / 2
-end
-
+#= none:7 =#
+#= none:7 =# @inline intrinsic_vector_x_component(i, j, k, grid, uₑ, vₑ) = begin
+            #= none:7 =#
+            #= none:8 =# @inbounds (intrinsic_vector(i, j, k, grid, uₑ, vₑ))[1]
+        end
+#= none:10 =#
+#= none:10 =# @inline intrinsic_vector_y_component(i, j, k, grid, uₑ, vₑ) = begin
+            #= none:10 =#
+            #= none:11 =# @inbounds (intrinsic_vector(i, j, k, grid, uₑ, vₑ))[2]
+        end
+#= none:13 =#
+#= none:13 =# @inline extrinsic_vector_x_component(i, j, k, grid, uᵢ, vᵢ) = begin
+            #= none:13 =#
+            #= none:14 =# @inbounds (extrinsic_vector(i, j, k, grid, uᵢ, vᵢ))[1]
+        end
+#= none:16 =#
+#= none:16 =# @inline extrinsic_vector_y_component(i, j, k, grid, uᵢ, vᵢ) = begin
+            #= none:16 =#
+            #= none:17 =# @inbounds (extrinsic_vector(i, j, k, grid, uᵢ, vᵢ))[2]
+        end
+#= none:19 =#
+#= none:19 =# @inline function kinetic_energyᶜᶜᶜ(i, j, k, grid, uᶜᶜᶜ, vᶜᶜᶜ)
+        #= none:19 =#
+        #= none:20 =#
+        #= none:20 =# @inbounds u² = uᶜᶜᶜ[i, j, k] ^ 2
+        #= none:21 =#
+        #= none:21 =# @inbounds v² = vᶜᶜᶜ[i, j, k] ^ 2
+        #= none:22 =#
+        return (u² + v²) / 2
+    end
+#= none:25 =#
 function kinetic_energy(u, v)
-    grid  = u.grid
+    #= none:25 =#
+    #= none:26 =#
+    grid = u.grid
+    #= none:27 =#
     ke_op = KernelFunctionOperation{Center, Center, Center}(kinetic_energyᶜᶜᶜ, grid, u, v)
-    ke    = Field(ke_op)
+    #= none:28 =#
+    ke = Field(ke_op)
+    #= none:29 =#
     return compute!(ke)
 end
-
+#= none:32 =#
 function pointwise_approximate_equal(field, val)
+    #= none:32 =#
+    #= none:33 =#
     CPU_field = on_architecture(CPU(), field)
-    @test all(interior(CPU_field) .≈ val)
+    #= none:34 =#
+    #= none:34 =# @test all(interior(CPU_field) .≈ val)
 end
-
-# A purely zonal flow with an west-east velocity > 0 
-# on a cubed sphere in an intrinsic coordinate system
-# has the following properties:
+#= none:40 =#
 function test_purely_zonal_flow(uᵢ, vᵢ, grid)
-    c1 = maximum(uᵢ) ≈ - minimum(vᵢ)
-    c2 = minimum(uᵢ) ≈ - maximum(vᵢ)
-    c3 = mean(uᵢ) ≈ - mean(vᵢ)
-    c4 = mean(uᵢ) > 0 # The mean value should be positive)
-
-    return c1 & c2 & c3 & c4
+    #= none:40 =#
+    #= none:41 =#
+    c1 = maximum(uᵢ) ≈ -(minimum(vᵢ))
+    #= none:42 =#
+    c2 = minimum(uᵢ) ≈ -(maximum(vᵢ))
+    #= none:43 =#
+    c3 = mean(uᵢ) ≈ -(mean(vᵢ))
+    #= none:44 =#
+    c4 = mean(uᵢ) > 0
+    #= none:46 =#
+    return ((c1 & c2) & c3) & c4
 end
-
-# A purely meridional flow with a south-north velocity > 0 
-# on a cubed sphere in an intrinsic coordinate system
-# has the following properties:
+#= none:52 =#
 function test_purely_meridional_flow(uᵢ, vᵢ, grid)
+    #= none:52 =#
+    #= none:53 =#
     c1 = maximum(uᵢ) ≈ maximum(vᵢ)
+    #= none:54 =#
     c2 = minimum(uᵢ) ≈ minimum(vᵢ)
+    #= none:55 =#
     c3 = mean(uᵢ) ≈ mean(vᵢ)
-    c4 = mean(vᵢ) > 0 # The mean value should be positive
-
-    return c1 & c2 & c3 & c4
+    #= none:56 =#
+    c4 = mean(vᵢ) > 0
+    #= none:58 =#
+    return ((c1 & c2) & c3) & c4
 end
-
+#= none:61 =#
 function test_vector_rotation(grid)
+    #= none:61 =#
+    #= none:62 =#
     u = CenterField(grid)
+    #= none:63 =#
     v = CenterField(grid)
-    
-    # Purely longitudinal flow in the extrinsic coordinate system
+    #= none:66 =#
     fill!(u, 1)
+    #= none:67 =#
     fill!(v, 0)
-
-    # Convert it to an "Instrinsic" reference frame
+    #= none:70 =#
     uᵢ = KernelFunctionOperation{Center, Center, Center}(intrinsic_vector_x_component, grid, u, v)
+    #= none:71 =#
     vᵢ = KernelFunctionOperation{Center, Center, Center}(intrinsic_vector_y_component, grid, u, v)
-    
+    #= none:73 =#
     uᵢ = compute!(Field(uᵢ))
+    #= none:74 =#
     vᵢ = compute!(Field(vᵢ))
-
-    # The extrema of u and v, as well as their mean value should
-    # be equivalent on an "intrinsic" frame
-    @test test_purely_zonal_flow(uᵢ, vᵢ, grid)
-
-    # Kinetic energy should remain the same
+    #= none:78 =#
+    #= none:78 =# @test test_purely_zonal_flow(uᵢ, vᵢ, grid)
+    #= none:81 =#
     KE = kinetic_energy(uᵢ, vᵢ)
-    @apply_regionally pointwise_approximate_equal(KE, 0.5)
-
-    # Convert it back to a purely zonal velocity (vₑ == 0)
+    #= none:82 =#
+    #= none:82 =# @apply_regionally pointwise_approximate_equal(KE, 0.5)
+    #= none:85 =#
     uₑ = KernelFunctionOperation{Center, Center, Center}(extrinsic_vector_x_component, grid, uᵢ, vᵢ)
+    #= none:86 =#
     vₑ = KernelFunctionOperation{Center, Center, Center}(extrinsic_vector_y_component, grid, uᵢ, vᵢ)
-    
+    #= none:88 =#
     uₑ = compute!(Field(uₑ))
+    #= none:89 =#
     vₑ = compute!(Field(vₑ))
-
-    # Make sure that the flow was converted back to a 
-    # purely zonal flow in the extrensic frame (v ≈ 0)
+    #= none:93 =#
     if architecture(grid) isa CPU
-        # Note that on the GPU, there are (apparently?) larger numerical errors 
-        # which lead to -1e-17 < vₑ < 1e-17 for which this test fails.
-        @apply_regionally pointwise_approximate_equal(vₑ, 0)
+        #= none:96 =#
+        #= none:96 =# @apply_regionally pointwise_approximate_equal(vₑ, 0)
     end
-
-    @apply_regionally pointwise_approximate_equal(uₑ, 1)
-
-    # Purely meridional flow in the extrinsic coordinate system
+    #= none:99 =#
+    #= none:99 =# @apply_regionally pointwise_approximate_equal(uₑ, 1)
+    #= none:102 =#
     fill!(u, 0)
+    #= none:103 =#
     fill!(v, 1)
-
-    # Convert it to an "Instrinsic" reference frame
+    #= none:106 =#
     uᵢ = KernelFunctionOperation{Center, Center, Center}(intrinsic_vector_x_component, grid, u, v)
+    #= none:107 =#
     vᵢ = KernelFunctionOperation{Center, Center, Center}(intrinsic_vector_y_component, grid, u, v)
-    
+    #= none:109 =#
     uᵢ = compute!(Field(uᵢ))
+    #= none:110 =#
     vᵢ = compute!(Field(vᵢ))
-
-    # The extrema of u and v, as well as their mean value should
-    # be equivalent on an "intrinsic" frame
-    @test test_purely_meridional_flow(uᵢ, vᵢ, grid)
-
-    # Kinetic energy should remain the same
+    #= none:114 =#
+    #= none:114 =# @test test_purely_meridional_flow(uᵢ, vᵢ, grid)
+    #= none:117 =#
     KE = kinetic_energy(uᵢ, vᵢ)
-    @apply_regionally pointwise_approximate_equal(KE, 0.5)
-
-    # Convert it back to a purely zonal velocity (vₑ == 0)
+    #= none:118 =#
+    #= none:118 =# @apply_regionally pointwise_approximate_equal(KE, 0.5)
+    #= none:121 =#
     uₑ = KernelFunctionOperation{Center, Center, Center}(extrinsic_vector_x_component, grid, uᵢ, vᵢ)
+    #= none:122 =#
     vₑ = KernelFunctionOperation{Center, Center, Center}(extrinsic_vector_y_component, grid, uᵢ, vᵢ)
-    
+    #= none:124 =#
     uₑ = compute!(Field(uₑ))
+    #= none:125 =#
     vₑ = compute!(Field(vₑ))
-
-    # Make sure that the flow was converted back to a 
-    # purely zonal flow in the extrensic frame (v ≈ 0)
-    @apply_regionally pointwise_approximate_equal(vₑ, 1)
-    
+    #= none:129 =#
+    #= none:129 =# @apply_regionally pointwise_approximate_equal(vₑ, 1)
+    #= none:131 =#
     if architecture(grid) isa CPU
-        # Note that on the GPU, there are (apparently?) larger numerical errors 
-        # which lead to - 4e-17 < uₑ < 4e-17 for which this test fails.
-        @apply_regionally pointwise_approximate_equal(uₑ, 0)
+        #= none:134 =#
+        #= none:134 =# @apply_regionally pointwise_approximate_equal(uₑ, 0)
     end
-
-    # Mixed zonal and meridional flow.
+    #= none:138 =#
     fill!(u, 0.5)
+    #= none:139 =#
     fill!(v, 0.5)
-
-    # Convert it to an "Instrinsic" reference frame
+    #= none:142 =#
     uᵢ = KernelFunctionOperation{Center, Center, Center}(intrinsic_vector_x_component, grid, u, v)
+    #= none:143 =#
     vᵢ = KernelFunctionOperation{Center, Center, Center}(intrinsic_vector_y_component, grid, u, v)
-    
+    #= none:145 =#
     uᵢ = compute!(Field(uᵢ))
+    #= none:146 =#
     vᵢ = compute!(Field(vᵢ))
-
-    # The extrema of u and v, should be equivalent on an "intrinsic" frame 
-    # when u == v on an extrinsic frame
-    @test maximum(uᵢ) ≈ maximum(vᵢ) 
-    @test minimum(uᵢ) ≈ minimum(vᵢ)
-
-    # Kinetic energy should remain the same
+    #= none:150 =#
+    #= none:150 =# @test maximum(uᵢ) ≈ maximum(vᵢ)
+    #= none:151 =#
+    #= none:151 =# @test minimum(uᵢ) ≈ minimum(vᵢ)
+    #= none:154 =#
     KE = kinetic_energy(uᵢ, vᵢ)
-    @apply_regionally pointwise_approximate_equal(KE, 0.25)
-
-    # Convert it back to a purely zonal velocity (vₑ == 0)
+    #= none:155 =#
+    #= none:155 =# @apply_regionally pointwise_approximate_equal(KE, 0.25)
+    #= none:158 =#
     uₑ = KernelFunctionOperation{Center, Center, Center}(extrinsic_vector_x_component, grid, uᵢ, vᵢ)
+    #= none:159 =#
     vₑ = KernelFunctionOperation{Center, Center, Center}(extrinsic_vector_y_component, grid, uᵢ, vᵢ)
-    
+    #= none:161 =#
     uₑ = compute!(Field(uₑ))
+    #= none:162 =#
     vₑ = compute!(Field(vₑ))
-
-    # Make sure that the flow was converted back to a 
-    # purely zonal flow in the extrensic frame (v ≈ 0)
-    @apply_regionally pointwise_approximate_equal(vₑ, 0.5)
-    @apply_regionally pointwise_approximate_equal(uₑ, 0.5)
+    #= none:166 =#
+    #= none:166 =# @apply_regionally pointwise_approximate_equal(vₑ, 0.5)
+    #= none:167 =#
+    #= none:167 =# @apply_regionally pointwise_approximate_equal(uₑ, 0.5)
 end
-    
-@testset "Vector rotation" begin
-    for arch in archs
-        @testset "Conversion from Intrinsic to Extrinsic reference frame [$(typeof(arch))]" begin
-            @info "  Testing the conversion of a vector between the Intrinsic and Extrinsic reference frame"
-            grid = ConformalCubedSphereGrid(arch; panel_size=(10, 10, 1), z=(-1, 0))
-            test_vector_rotation(grid)
+#= none:170 =#
+#= none:170 =# @testset "Vector rotation" begin
+        #= none:171 =#
+        for arch = archs
+            #= none:172 =#
+            #= none:172 =# @testset "Conversion from Intrinsic to Extrinsic reference frame [$(typeof(arch))]" begin
+                    #= none:173 =#
+                    #= none:173 =# @info "  Testing the conversion of a vector between the Intrinsic and Extrinsic reference frame"
+                    #= none:174 =#
+                    grid = ConformalCubedSphereGrid(arch; panel_size = (10, 10, 1), z = (-1, 0))
+                    #= none:175 =#
+                    test_vector_rotation(grid)
+                end
+            #= none:177 =#
         end
     end
-end

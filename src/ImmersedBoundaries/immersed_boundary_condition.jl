@@ -1,168 +1,117 @@
-using Oceananigans.BoundaryConditions: BoundaryCondition, 
-                                       DefaultBoundaryCondition, 
-                                       LeftBoundary, 
-                                       RightBoundary,
-                                       regularize_boundary_condition,
-                                       VBC, GBC, FBC, Flux
 
-import Oceananigans.BoundaryConditions: regularize_immersed_boundary_condition,     
-                                        bc_str, 
-                                        update_boundary_condition!
-
+#= none:1 =#
+using Oceananigans.BoundaryConditions: BoundaryCondition, DefaultBoundaryCondition, LeftBoundary, RightBoundary, regularize_boundary_condition, VBC, GBC, FBC, Flux
+#= none:8 =#
+import Oceananigans.BoundaryConditions: regularize_immersed_boundary_condition, bc_str, update_boundary_condition!
+#= none:12 =#
 struct ImmersedBoundaryCondition{W, E, S, N, B, T}
-    west :: W                  
-    east :: E
-    south :: S   
-    north :: N
-    bottom :: B
-    top :: T
+    #= none:13 =#
+    west::W
+    #= none:14 =#
+    east::E
+    #= none:15 =#
+    south::S
+    #= none:16 =#
+    north::N
+    #= none:17 =#
+    bottom::B
+    #= none:18 =#
+    top::T
 end
-
+#= none:21 =#
 const IBC = ImmersedBoundaryCondition
-
-bc_str(::IBC) = "ImmersedBoundaryCondition"
-
-Base.summary(ibc::IBC) =
-    string(bc_str(ibc), " with ",
-           "west=", bc_str(ibc.west), ", ",
-           "east=", bc_str(ibc.east), ", ",
-           "south=", bc_str(ibc.south), ", ",
-           "north=", bc_str(ibc.north), ", ",
-           "bottom=", bc_str(ibc.bottom), ", ",
-           "top=", bc_str(ibc.top))
-
-Base.show(io::IO, ibc::IBC) =
-    print(io, "ImmersedBoundaryCondition:", "\n",
-              "├── west: ", summary(ibc.west), "\n",
-              "├── east: ", summary(ibc.east), "\n",
-              "├── south: ", summary(ibc.south), "\n",
-              "├── north: ", summary(ibc.north), "\n",
-              "├── bottom: ", summary(ibc.bottom), "\n",
-              "└── top: ", summary(ibc.top))
-
-"""
-    ImmersedBoundaryCondition(; interfaces...)
-
-Return an `ImmersedBoundaryCondition` with conditions on individual cell
-`interfaces ∈ (west, east, south, north, bottom, top)` between the fluid
-and the immersed boundary.
-"""
-function ImmersedBoundaryCondition(; west = nothing,
-                                     east = nothing,
-                                     south = nothing,
-                                     north = nothing,
-                                     bottom = nothing,
-                                     top = nothing)
-
-    @warn "`ImmersedBoundaryCondition` is experimental."
-    return ImmersedBoundaryCondition(west, east, south, north, bottom, top)
-end
-
-#####
-##### Boundary condition "regularization"
-#####
-
+#= none:23 =#
+bc_str(::IBC) = begin
+        #= none:23 =#
+        "ImmersedBoundaryCondition"
+    end
+#= none:25 =#
+Base.summary(ibc::IBC) = begin
+        #= none:25 =#
+        string(bc_str(ibc), " with ", "west=", bc_str(ibc.west), ", ", "east=", bc_str(ibc.east), ", ", "south=", bc_str(ibc.south), ", ", "north=", bc_str(ibc.north), ", ", "bottom=", bc_str(ibc.bottom), ", ", "top=", bc_str(ibc.top))
+    end
+#= none:34 =#
+Base.show(io::IO, ibc::IBC) = begin
+        #= none:34 =#
+        print(io, "ImmersedBoundaryCondition:", "\n", "├── west: ", summary(ibc.west), "\n", "├── east: ", summary(ibc.east), "\n", "├── south: ", summary(ibc.south), "\n", "├── north: ", summary(ibc.north), "\n", "├── bottom: ", summary(ibc.bottom), "\n", "└── top: ", summary(ibc.top))
+    end
+#= none:43 =#
+#= none:43 =# Core.@doc "    ImmersedBoundaryCondition(; interfaces...)\n\nReturn an `ImmersedBoundaryCondition` with conditions on individual cell\n`interfaces ∈ (west, east, south, north, bottom, top)` between the fluid\nand the immersed boundary.\n" function ImmersedBoundaryCondition(; west = nothing, east = nothing, south = nothing, north = nothing, bottom = nothing, top = nothing)
+        #= none:50 =#
+        #= none:57 =#
+        #= none:57 =# @warn "`ImmersedBoundaryCondition` is experimental."
+        #= none:58 =#
+        return ImmersedBoundaryCondition(west, east, south, north, bottom, top)
+    end
+#= none:65 =#
 const ZFBC = BoundaryCondition{Flux, Nothing}
-regularize_immersed_boundary_condition(ibc::ZFBC, ibg::GFIBG, args...) = ibc # keep it
-
-regularize_immersed_boundary_condition(default::DefaultBoundaryCondition, ibg::GFIBG, loc, field_name, args...) =
-    regularize_immersed_boundary_condition(default.boundary_condition, ibg, loc, field_name, args...)
-
-# Convert certain non-immersed boundary conditions to immersed boundary conditions
+#= none:66 =#
+regularize_immersed_boundary_condition(ibc::ZFBC, ibg::GFIBG, args...) = begin
+        #= none:66 =#
+        ibc
+    end
+#= none:68 =#
+regularize_immersed_boundary_condition(default::DefaultBoundaryCondition, ibg::GFIBG, loc, field_name, args...) = begin
+        #= none:68 =#
+        regularize_immersed_boundary_condition(default.boundary_condition, ibg, loc, field_name, args...)
+    end
+#= none:72 =#
 function regularize_immersed_boundary_condition(ibc::Union{VBC, GBC, FBC}, ibg::GFIBG, loc, field_name, args...)
-    ibc = ImmersedBoundaryCondition(Tuple(ibc for i=1:6)...)
-    regularize_immersed_boundary_condition(ibc, ibg, loc, field_name, args...) 
+    #= none:72 =#
+    #= none:73 =#
+    ibc = ImmersedBoundaryCondition(Tuple((ibc for i = 1:6))...)
+    #= none:74 =#
+    regularize_immersed_boundary_condition(ibc, ibg, loc, field_name, args...)
 end
-
-"""
-    regularize_immersed_boundary_condition(bc::BoundaryCondition{C, <:ContinuousBoundaryFunction},
-                                           topo, loc, dim, I, prognostic_field_names) where C
-"""
-function regularize_immersed_boundary_condition(bc::IBC, grid, loc, field_name, prognostic_field_names)
-
-    west   = loc[1] === Face ? nothing : regularize_boundary_condition(bc.west,   grid, loc, 1, LeftBoundary,  prognostic_field_names)
-    east   = loc[1] === Face ? nothing : regularize_boundary_condition(bc.east,   grid, loc, 1, RightBoundary, prognostic_field_names)
-    south  = loc[2] === Face ? nothing : regularize_boundary_condition(bc.south,  grid, loc, 2, LeftBoundary,  prognostic_field_names)
-    north  = loc[2] === Face ? nothing : regularize_boundary_condition(bc.north,  grid, loc, 2, RightBoundary, prognostic_field_names)
-    bottom = loc[3] === Face ? nothing : regularize_boundary_condition(bc.bottom, grid, loc, 3, LeftBoundary,  prognostic_field_names)
-    top    = loc[3] === Face ? nothing : regularize_boundary_condition(bc.top,    grid, loc, 3, RightBoundary, prognostic_field_names)
-
-    return ImmersedBoundaryCondition(; west, east, south, north, bottom, top)
-end
-
-Adapt.adapt_structure(to, bc::ImmersedBoundaryCondition) = ImmersedBoundaryCondition(Adapt.adapt(to, bc.west),
-                                                                                     Adapt.adapt(to, bc.east),
-                                                                                     Adapt.adapt(to, bc.south),
-                                                                                     Adapt.adapt(to, bc.north),
-                                                                                     Adapt.adapt(to, bc.bottom),
-                                                                                     Adapt.adapt(to, bc.top))
-
-update_boundary_condition!(bc::ImmersedBoundaryCondition, args...) = nothing
-
-#####
-##### Alternative implementation for immersed flux divergence
-#####
-
-#=
-# Another idea...
-# loc is the field location
-# These are evaluated on both sides of a cell (eg left and right)
-function immersed_flux_x(i, j, k, ibg, bc, loc, c, closure, K, id, args...)
-    qᵂ = west_ib_flux(i, j, k, ibg, bc.west, loc, c, closure, K, id, args...)
-    qᴱ = east_ib_flux(i, j, k, ibg, bc.east, loc, c, closure, K, id, args...)
-
-    LX, LY, LZ = loc
-    west_boundary = immersed_peripheral_node(flip(LX), LY, LZ, i, j, k, ibg) & !inactive_node(LX, LY, LZ, i, j, k, ibg)
-    east_boundary = immersed_peripheral_node(flip(LX), LY, LZ, i, j, k, ibg) & !inactive_node(LX, LY, LZ, i-1, j, k, ibg)
-
-    return ifelse(west_boundary, qᵂ, zero(ibg)) + ifelse(east_boundary, qᴱ, zero(ibg))
-end
-
-function immersed_flux_y(i, j, k, ibg, bc, loc, c, closure, K, id, args...)
-    qˢ = south_ib_flux(i, j, k, ibg, bc.south, loc, c, closure, K, id, args...)
-    qᴺ = north_ib_flux(i, j, k, ibg, bc.north, loc, c, closure, K, id, args...)
-
-    LX, LY, LZ = loc
-    south_boundary = immersed_peripheral_node(LX, flip(LY), LZ, i, j, k, ibg) & !inactive_node(LX, LY, LZ, i, j, k, ibg)
-    north_boundary = immersed_peripheral_node(LX, flip(LY), LZ, i, j, k, ibg) & !inactive_node(LX, LY, LZ, i, j-1, k, ibg)
-
-    return ifelse(south_boundary, qˢ, zero(ibg)) + ifelse(north_boundary, qᴺ, zero(ibg))
-end
-
-function immersed_flux_z(i, j, k, ibg, bc, loc, c, closure, K, id, args...)
-    qᴮ = bottom_ib_flux(i, j, k, ibg, bc.bottom, loc, c, closure, K, id, args...)
-    qᵀ =    top_ib_flux(i, j, k, ibg, bc.top,    loc, c, closure, K, id, args...)
-
-    LX, LY, LZ = loc
-    bottom_boundary = immersed_peripheral_node(LX, LY, flip(LZ), i, j, k, ibg) & !inactive_node(LX, LY, LZ, i, j, k, ibg)
-    top_boundary    = immersed_peripheral_node(LX, LY, flip(LZ), i, j, k, ibg) & !inactive_node(LX, LY, LZ, i, j, k-1, ibg)
-
-    return ifelse(bottom_boundary, qᴮ, zero(ibg)) + ifelse(top_boundary, qᵀ, zero(ibg))
-end
-
-@inline immersed_∂ⱼ_τ₁ⱼ(i, j, k, ibg::GFIBG, U, u_bc::IBC, closure, K, args...) =
-    return 1/Vᶠᶜᶜ(i, j, k, ibg) * (δxᶠᵃᵃ(i, j, k, ibg, Ax_qᶜᶜᶜ, immersed_flux_x, u_bc, (f, c, c), U.u, closure, K, nothing, args...) +
-                                   δyᵃᶜᵃ(i, j, k, ibg, Ax_qᶜᶜᶜ, immersed_flux_y, u_bc, (f, c, c), U.u, closure, K, nothing, args...) +
-                                   δzᵃᵃᶜ(i, j, k, ibg, Az_qᶠᶜᶠ, immersed_flux_z, u_bc, (f, c, c), U.u, closure, K, nothing, args...))
-
-
-@inline immersed_∂ⱼ_τ₂ⱼ(i, j, k, ibg::GFIBG, U, v_bc::IBC, closure, K, args...) =
-    return 1/Vᶜᶠᶜ(i, j, k, ibg) * (δxᶜᵃᵃ(i, j, k, ibg, Ax_qᶠᶠᶜ, immersed_flux_x, v_bc, (c, c, c), U.v, closure, K, nothing, args...) +
-                                   δyᵃᶠᵃ(i, j, k, ibg, Ax_qᶜᶜᶜ, immersed_flux_y, v_bc, (c, f, c), U.v, closure, K, nothing, args...) +
-                                   δzᵃᵃᶜ(i, j, k, ibg, Az_qᶜᶠᶠ, immersed_flux_z, v_bc, (c, f, c), U.v, closure, K, nothing, args...))
-
-    immersed_flux_divergence(i, j, k, ibg, v_bc, (c, f, c), U.v, closure, K, nothing, args...)
-
-@inline immersed_∂ⱼ_τ₃ⱼ(i, j, k, ibg::GFIBG, U, w_bc::IBC, closure, K, args...) =
-    return 1/Vᶜᶜᶠ(i, j, k, ibg) * (δxᶜᵃᵃ(i, j, k, ibg, Ax_qᶠᶜᶠ, immersed_flux_x, w_bc, (c, c, f), U.w, closure, K, nothing, args...) +
-                                   δyᵃᶜᵃ(i, j, k, ibg, Ax_qᶜᶠᶠ, immersed_flux_y, w_bc, (c, c, f), U.w, closure, K, nothing, args...) +
-                                   δzᵃᵃᶠ(i, j, k, ibg, Az_qᶜᶜᶜ, immersed_flux_z, w_bc, (c, c, f), U.w, closure, K, nothing, args...))
-
-@inline immersed_∇_dot_qᶜ(i, j, k, ibg::GFIBG, C, c_bc::IBC, closure, K, id, args...) =
-    return 1/Vᶜᶜᶜ(i, j, k, ibg) * (δxᶜᵃᵃ(i, j, k, ibg, Ax_qᶠᶜᶜ, immersed_flux_x, c_bc, (c, c, c), U.u, closure, K, id, args...) +
-                                   δyᵃᶜᵃ(i, j, k, ibg, Ax_qᶜᶠᶜ, immersed_flux_y, c_bc, (c, c, c), U.u, closure, K, id, args...) +
-                                   δzᵃᵃᶜ(i, j, k, ibg, Az_qᶜᶜᶠ, immersed_flux_z, c_bc, (c, c, c), U.u, closure, K, id, args...))
-
-=#
-
-
+#= none:77 =#
+#= none:77 =# Core.@doc "    regularize_immersed_boundary_condition(bc::BoundaryCondition{C, <:ContinuousBoundaryFunction},\n                                           topo, loc, dim, I, prognostic_field_names) where C\n" function regularize_immersed_boundary_condition(bc::IBC, grid, loc, field_name, prognostic_field_names)
+        #= none:81 =#
+        #= none:83 =#
+        west = if loc[1] === Face
+                nothing
+            else
+                regularize_boundary_condition(bc.west, grid, loc, 1, LeftBoundary, prognostic_field_names)
+            end
+        #= none:84 =#
+        east = if loc[1] === Face
+                nothing
+            else
+                regularize_boundary_condition(bc.east, grid, loc, 1, RightBoundary, prognostic_field_names)
+            end
+        #= none:85 =#
+        south = if loc[2] === Face
+                nothing
+            else
+                regularize_boundary_condition(bc.south, grid, loc, 2, LeftBoundary, prognostic_field_names)
+            end
+        #= none:86 =#
+        north = if loc[2] === Face
+                nothing
+            else
+                regularize_boundary_condition(bc.north, grid, loc, 2, RightBoundary, prognostic_field_names)
+            end
+        #= none:87 =#
+        bottom = if loc[3] === Face
+                nothing
+            else
+                regularize_boundary_condition(bc.bottom, grid, loc, 3, LeftBoundary, prognostic_field_names)
+            end
+        #= none:88 =#
+        top = if loc[3] === Face
+                nothing
+            else
+                regularize_boundary_condition(bc.top, grid, loc, 3, RightBoundary, prognostic_field_names)
+            end
+        #= none:90 =#
+        return ImmersedBoundaryCondition(; west, east, south, north, bottom, top)
+    end
+#= none:93 =#
+Adapt.adapt_structure(to, bc::ImmersedBoundaryCondition) = begin
+        #= none:93 =#
+        ImmersedBoundaryCondition(Adapt.adapt(to, bc.west), Adapt.adapt(to, bc.east), Adapt.adapt(to, bc.south), Adapt.adapt(to, bc.north), Adapt.adapt(to, bc.bottom), Adapt.adapt(to, bc.top))
+    end
+#= none:100 =#
+update_boundary_condition!(bc::ImmersedBoundaryCondition, args...) = begin
+        #= none:100 =#
+        nothing
+    end

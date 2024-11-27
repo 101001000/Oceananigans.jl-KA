@@ -1,49 +1,72 @@
-push!(LOAD_PATH, joinpath(@__DIR__, ".."))
 
+#= none:1 =#
+push!(LOAD_PATH, joinpath(#= none:1 =# @__DIR__(), ".."))
+#= none:3 =#
 using BenchmarkTools
-using CUDA
+#= none:4 =#
+begin
+    using CUDA, Juliana, GPUArrays
+    import KernelAbstractions
+end
+#= none:5 =#
 using Oceananigans
+#= none:6 =#
 using Benchmarks
-
-# Benchmark function
-
+#= none:10 =#
 function benchmark_topology(Arch, N, topo)
-    grid = RectilinearGrid(Arch(), topology=topo, size=(N, N, N), extent=(1, 1, 1))
-    model = NonhydrostaticModel(grid=grid)
-
-    time_step!(model, 1) # warmup
-
-    trial = @benchmark begin
-        @sync_gpu time_step!($model, 1)
-    end samples=10
-
+    #= none:10 =#
+    #= none:11 =#
+    grid = RectilinearGrid(Arch(), topology = topo, size = (N, N, N), extent = (1, 1, 1))
+    #= none:12 =#
+    model = NonhydrostaticModel(grid = grid)
+    #= none:14 =#
+    time_step!(model, 1)
+    #= none:16 =#
+    trial = #= none:16 =# @benchmark(begin
+                #= none:17 =#
+                #= none:17 =# @sync_gpu time_step!($model, 1)
+            end, samples = 10)
+    #= none:20 =#
     return trial
 end
-
-# Benchmark parameters
-
-Architectures = has_cuda() ? [CPU, GPU] : [CPU]
+#= none:25 =#
+Architectures = if true
+        [CPU, GPU]
+    else
+        [CPU]
+    end
+#= none:26 =#
 Ns = [128]
+#= none:27 =#
 PB = (Periodic, Bounded)
-Topologies = collect(Iterators.product(PB, PB, PB))[:]
-
-# Run and summarize benchmarks
-
+#= none:28 =#
+Topologies = (collect(Iterators.product(PB, PB, PB)))[:]
+#= none:32 =#
 suite = run_benchmarks(benchmark_topology; Architectures, Ns, Topologies)
-
+#= none:34 =#
 df = benchmarks_dataframe(suite)
-sort!(df, [:Architectures, :Topologies, :Ns], by=(string, string, identity))
-benchmarks_pretty_table(df, title="Topologies benchmarks")
-
+#= none:35 =#
+sort!(df, [:Architectures, :Topologies, :Ns], by = (string, string, identity))
+#= none:36 =#
+benchmarks_pretty_table(df, title = "Topologies benchmarks")
+#= none:38 =#
 if GPU in Architectures
+    #= none:39 =#
     df = gpu_speedups_suite(suite) |> speedups_dataframe
-    sort!(df, [:Topologies, :Ns], by=(string, identity))
-    benchmarks_pretty_table(df, title="Topologies CPU to GPU speedup")
+    #= none:40 =#
+    sort!(df, [:Topologies, :Ns], by = (string, identity))
+    #= none:41 =#
+    benchmarks_pretty_table(df, title = "Topologies CPU to GPU speedup")
 end
-
-for Arch in Architectures
-    suite_arch = speedups_suite(suite[@tagged Arch], base_case=(Arch, Ns[1], (Periodic, Periodic, Periodic)))
-    df_arch = speedups_dataframe(suite_arch, slowdown=true)
-    sort!(df_arch, [:Topologies, :Ns], by=string)
-    benchmarks_pretty_table(df_arch, title="Topologies relative performance ($Arch)")
+#= none:44 =#
+for Arch = Architectures
+    #= none:45 =#
+    suite_arch = speedups_suite(suite[#= none:45 =# @tagged(Arch)], base_case = (Arch, Ns[1], (Periodic, Periodic, Periodic)))
+    #= none:46 =#
+    df_arch = speedups_dataframe(suite_arch, slowdown = true)
+    #= none:47 =#
+    sort!(df_arch, [:Topologies, :Ns], by = string)
+    #= none:48 =#
+    benchmarks_pretty_table(df_arch, title = "Topologies relative performance ($(Arch))")
+    #= none:49 =#
 end
